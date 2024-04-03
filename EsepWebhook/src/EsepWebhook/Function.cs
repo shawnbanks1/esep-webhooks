@@ -1,48 +1,36 @@
-using Amazon.Lambda.APIGatewayEvents;
+using System.Text;
 using Amazon.Lambda.Core;
 using Newtonsoft.Json;
-using System;
-using System.Collections.Generic;
 
+// Assembly attribute to enable the Lambda function's JSON input to be converted into a .NET class.
 [assembly: LambdaSerializer(typeof(Amazon.Lambda.Serialization.SystemTextJson.DefaultLambdaJsonSerializer))]
 
-namespace EsepWebhook
+namespace EsepWebhook;
+
+public class Function
 {
-    public class Function
+    
+    /// <summary>
+    /// A simple function that takes a string and does a ToUpper
+    /// </summary>
+    /// <param name="input"></param>
+    /// <param name="context"></param>
+    /// <returns></returns>
+    public string FunctionHandler(object input, ILambdaContext context)
     {
-        public APIGatewayProxyResponse FunctionHandler(APIGatewayProxyRequest input, ILambdaContext context)
+        dynamic json = JsonConvert.DeserializeObject<dynamic>(input.ToString());
+        
+        string payload = $"{{'text':'Issue Created: {json.issue.html_url}'}}";
+        
+        var client = new HttpClient();
+        var webRequest = new HttpRequestMessage(HttpMethod.Post, Environment.GetEnvironmentVariable("SLACK_URL"))
         {
-            var eventData = JsonConvert.DeserializeObject<GitHubWebhookEventData>(input.Body);
-            var issueUrl = eventData.Issue.HtmlUrl;
+            Content = new StringContent(payload, Encoding.UTF8, "application/json")
+        };
 
-            // Post message to Slack
-            var slackUrl = Environment.GetEnvironmentVariable("SLACK_URL");
-            var slackMessage = new { text = $"New issue created: {issueUrl}" };
-            var httpClient = new HttpClient();
-            var response = httpClient.PostAsync(slackUrl, new StringContent(JsonConvert.SerializeObject(slackMessage))).Result;
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new Exception($"Failed to post message to Slack. Status code: {response.StatusCode}");
-            }
-
-            return new APIGatewayProxyResponse
-            {
-                StatusCode = 200,
-                Body = JsonConvert.SerializeObject(new { message = "Success" }),
-                Headers = new Dictionary<string, string> { { "Content-Type", "application/json" } }
-            };
-        }
-
-        public class GitHubWebhookEventData
-        {
-            [JsonProperty("issue")]
-            public IssueData Issue { get; set; }
-
-            public class IssueData
-            {
-                [JsonProperty("html_url")]
-                public string HtmlUrl { get; set; }
-            }
-        }
+        var response = client.Send(webRequest);
+        using var reader = new StreamReader(response.Content.ReadAsStream());
+            
+        return reader.ReadToEnd();
     }
 }
